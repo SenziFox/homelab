@@ -1,0 +1,14 @@
+services:
+  runner:
+    image: myoung34/github-runner:latest
+    network_mode: "host"
+    restart: always
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - REPO_URL="your repo url"
+      - ACCESS_TOKEN="your ghp token"
+      - RUNNER_LABELS=self-hosted,linux,x64,docker-runner
+      - RUNNER_NAME=docker.home
+      - RUNNER_REPLACE_EXISTING=true 
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

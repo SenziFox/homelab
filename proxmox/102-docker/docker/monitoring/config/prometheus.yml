@@ -1,0 +1,45 @@
+global:
+  scrape_interval: 5s
+  external_labels:
+    site: 'home-lab'
+
+scrape_configs:
+  - job_name: 'node-monitoring'
+    static_configs:
+      - targets: ['10.0.1.10:9100']
+        labels:
+          node: 'pve'
+          type: 'hypervisor'
+
+      - targets: ['10.0.100.100:9100']
+        labels:
+          node: 'pbs'
+          type: 'storage'
+
+      - targets: ['10.0.100.101:9100']
+        labels:
+          node: 'net'
+          type: 'lxc-net'
+
+      - targets: ['10.0.100.102:9100']
+        labels:
+          node: 'docker'
+          type: 'vm-docker'
+
+  - job_name: 'docker-engine'
+    static_configs:
+      - targets: ['10.0.100.102:9323']
+        labels:
+          node: 'docker-host'
+
+  - job_name: 'vmagent'
+    static_configs:
+      - targets: ['127.0.0.1:8429']
+        labels:
+          node: 'vmagent-local'
+
+  - job_name: 'minecraft'
+    static_configs:
+      - targets: ['10.0.100.102:25585']
+        labels:
+          node: 'bl-land-2'

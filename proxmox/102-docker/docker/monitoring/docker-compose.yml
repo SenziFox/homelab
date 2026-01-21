@@ -1,0 +1,22 @@
+services:
+  vmagent:
+    image: victoriametrics/vmagent:latest
+    container_name: monitoring-vmagent
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "-promscrape.config=/etc/prometheus/prometheus.yml"
+      - "-remoteWrite.url=https://stats.arseniitrs.ru/api/v1/write"
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: monitoring-node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+    restart: unless-stopped

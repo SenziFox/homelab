@@ -1,5 +1,7 @@
 # proxmox backup service
 
+LXC
+
 vlan tag 100
 10.0.100.100/24
 10.0.100.1

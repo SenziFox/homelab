@@ -1,5 +1,7 @@
 # network core
 
+LXC
+
 vlan tag 100
 10.0.100.101/24
 10.0.100.1

@@ -1,0 +1,27 @@
+services:
+  db:
+    image: mariadb:10.6
+    container_name: nextcloud-db
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    restart: always
+    volumes:
+      - /mnt/storage/docker-data/nextcloud/db:/var/lib/mysql
+
+  redis:
+    image: redis:alpine
+    container_name: nextcloud-redis
+    restart: always
+
+  app:
+    image: nextcloud:latest
+    container_name: nextcloud-app
+    restart: always
+    ports:
+      - 9000:80
+    links:
+      - db
+      - redis
+    volumes:
+      - /mnt/storage/docker-data/nextcloud/data:/var/www/html/data
+      - ./html:/var/www/html
+
