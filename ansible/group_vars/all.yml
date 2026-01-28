@@ -1,0 +1,11 @@
+---
+ssh_port: 5542
+timezone: "Europe/Moscow"
+sys_packages:
+  - btop
+  - curl
+  - wget
+  - git
+  - ncdu
+  - ufw
+  - fastfetch

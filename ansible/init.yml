@@ -1,0 +1,95 @@
+---
+- name: Init new server (Debian 13)
+  hosts: lab
+  become: true
+
+  tasks:
+    - name: Update all packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        autoremove: true
+
+    - name: Set Timezone
+      community.general.timezone:
+        name: "{{ timezone }}"
+
+    - name: Install essential packages
+      ansible.builtin.apt:
+        name: "{{ sys_packages }}"
+        state: present
+
+    - name: Configure UFW for new SSH port
+      community.general.ufw:
+        rule: allow
+        port: "{{ ssh_port | string }}"
+        proto: tcp
+
+    - name: Configure SSH Port
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Port\s+'
+        line: "Port {{ ssh_port }}"
+      notify: Restart SSH
+
+    - name: Flush handlers to restart SSH now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify connectivity on port {{ ssh_port }}
+      delegate_to: localhost
+      become: false
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ ssh_port }}"
+        state: started
+        timeout: 15
+      register: ssh_check
+
+    - name: Update inventory.ini if validation succeeded
+      delegate_to: localhost
+      become: false
+      when: ssh_check is succeeded
+      ansible.builtin.lineinfile:
+        path: "./inventory.ini"
+        regexp: '^({{ inventory_hostname }}\s+ansible_host=\S+).*'
+        line: '\1 ansible_port={{ ssh_port }}'
+        backrefs: true
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+        policy: deny
+
+    - name: "Set UFW default policies"
+      community.general.ufw:
+        state: enabled
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: "Disable unnecessary services by RPCBind"
+      ansible.builtin.systemd:
+        name: rpcbind
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: "Storage: Configure journald for log economy"
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?SystemMaxUse='
+        line: "SystemMaxUse=50M"
+      notify: "Restart Journald"
+
+  handlers:
+    - name: Restart SSH
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+
+    - name: Restart Journald
+      ansible.builtin.service:
+        name: systemd-journald
+        state: restarted
