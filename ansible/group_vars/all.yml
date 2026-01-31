@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/ansible-stable-2.9
 ---
 ssh_port: 5542
 timezone: "Europe/Moscow"
@@ -9,3 +10,5 @@ sys_packages:
   - ncdu
   - ufw
   - fastfetch
+bootstrap_user: "root"
+admin_user: "senzi"

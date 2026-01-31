@@ -2,3 +2,4 @@
 *.log
 .vscode/
 ansible/fact_cache/
+ansible/secrets.yml
