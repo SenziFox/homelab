@@ -1,6 +1,6 @@
 ---
 - name: Init new server (Debian 13)
-  hosts: lab
+  hosts: la
   become: true
 
   tasks:
@@ -25,11 +25,11 @@
         port: "{{ ssh_port | string }}"
         proto: tcp
 
-    - name: Configure SSH Port
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^#?Port\s+'
-        line: "Port {{ ssh_port }}"
+    - name: "Configure SSH on {{ ssh_port }} port"
+      ansible.builtin.copy:
+        content: "Port {{ ssh_port }}\n"
+        dest: /etc/ssh/sshd_config.d/99-custom-port.conf
+        mode: '0644'
       notify: Restart SSH
 
     - name: Flush handlers to restart SSH now
