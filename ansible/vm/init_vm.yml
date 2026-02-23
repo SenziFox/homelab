@@ -1,6 +1,6 @@
 ---
 - name: Init new server (Debian 13)
-  hosts: la
+  hosts: all
   become: true
 
   tasks:
