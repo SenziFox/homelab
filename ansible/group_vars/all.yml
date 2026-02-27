@@ -1,5 +1,6 @@
 ---
-ssh_port: 5542
+ansible_port: 5542
+ansible_user: senzi
 timezone: "Europe/Moscow"
 sys_packages:
   - btop
@@ -9,6 +10,5 @@ sys_packages:
   - ncdu
   - ufw
   - fastfetch
-bootstrap_user: "root"
 admin_user: "senzi"
 # admin_keys в отдельном ansible/secrets.yml
