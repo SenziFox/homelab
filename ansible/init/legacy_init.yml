@@ -1,43 +1,42 @@
 ---
-- name: "Bootstrap: Gain control over legacy VM"
+- name: "Bootstrap: Gain control over legacy server"
   hosts: all
   gather_facts: false
-
+  become: true
   vars_files:
-    - secrets.yml
+    - ../secrets.yml
 
   vars:
     ansible_user: root
-    admin_user: senzi
 
   tasks:
-    - name: "Ensure Python is installed for Ansible to work"
+    - name: "APT: Ensure Python is installed"
       ansible.builtin.raw: apt update && apt install -y python3
       changed_when: false
 
-    - name: "Ensure sudo is installed"
+    - name: "APT: Ensure sudo is installed"
       ansible.builtin.apt:
         name: sudo
         state: present
         update_cache: true
 
-    - name: "Create admin user: {{ admin_user }}"
+    - name: "User: Create admin user {{ admin_user }}"
       ansible.builtin.user:
         name: "{{ admin_user }}"
         shell: /bin/bash
         groups: sudo
         append: true
 
-    - name: "Deploy SSH keys for {{ admin_user }}"
+    - name: "User: Deploy SSH keys for {{ admin_user }}"
       ansible.posix.authorized_key:
         user: "{{ admin_user }}"
         state: present
         key: "{{ item }}"
       loop: "{{ admin_keys }}"
 
-    - name: "Passwordless sudo for {{ admin_user }}"
+    - name: "User: Passwordless sudo for {{ admin_user }}"
       ansible.builtin.copy:
-        content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL"
+        content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
         dest: "/etc/sudoers.d/{{ admin_user }}"
         mode: '0440'
         validate: 'visudo -cf %s'
