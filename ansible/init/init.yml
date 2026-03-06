@@ -1,67 +1,127 @@
 ---
-- name: "Init: Bootstrap new server (Debian 13)"
+- name: "Init: Bootstrap and maintain server state"
   hosts: all
   become: true
 
+  vars_files:
+    - secrets.yml
+
+  handlers:
+    - name: "Restart SSH (VM)"
+      ansible.builtin.systemd:
+        name: ssh.socket
+        state: restarted
+        daemon_reload: true
+      when: proxmox_type == 'vm'
+
+    - name: "Restart SSH (LXC)"
+      ansible.builtin.systemd:
+        name: ssh.service
+        state: restarted
+      when: proxmox_type == 'lxc'
+
+    - name: "Restart fail2ban"
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
+
+    - name: "Restart journald"
+      ansible.builtin.service:
+        name: systemd-journald
+        state: restarted
+
   tasks:
+    # --- APT ---
     - name: "APT: Update and upgrade all packages"
       ansible.builtin.apt:
         update_cache: true
         upgrade: dist
         autoremove: true
 
-    - name: "System: Set timezone to {{ timezone }}"
-      community.general.timezone:
-        name: "{{ timezone }}"
+    - name: "APT: Install essential packages"
+      ansible.builtin.apt:
+        name: "{{ sys_packages }}"
+        state: present
+      when: proxmox_type == 'vm'
 
     - name: "APT: Install essential packages"
       ansible.builtin.apt:
         name: "{{ sys_packages }}"
         state: present
+      when: proxmox_type == 'lxc'
 
-    - name: "SSH: Configure port {{ target_ssh_port }}"
+    - name: "System: Set timezone to {{ timezone }}"
+      community.general.timezone:
+        name: "{{ timezone }}"
+
+    - name: "User: Ensure {{ admin_user }} exists"
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+
+    - name: "User: Sync SSH keys for {{ admin_user }}"
+      ansible.posix.authorized_key:
+        user: "{{ admin_user }}"
+        state: present
+        key: "{{ item }}"
+      loop: "{{ admin_keys }}"
+
+    - name: "User: Passwordless sudo for {{ admin_user }}"
+      ansible.builtin.copy:
+        content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        dest: "/etc/sudoers.d/{{ admin_user }}"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: "SSH (VM): Create socket drop-in directory"
+      ansible.builtin.file:
+        path: /etc/systemd/system/ssh.socket.d
+        state: directory
+        mode: '0755'
+      when: proxmox_type == 'vm'
+
+    - name: "SSH (VM): Override ssh.socket port"
+      ansible.builtin.copy:
+        content: |
+          [Socket]
+          ListenStream=
+          ListenStream={{ target_ssh_port }}
+        dest: /etc/systemd/system/ssh.socket.d/override.conf
+        mode: '0644'
+      notify: "Restart SSH (VM)"
+      when: proxmox_type == 'vm'
+
+    - name: "SSH (LXC): Disable ssh.socket, enable ssh.service"
+      ansible.builtin.systemd:
+        name: "{{ item.name }}"
+        enabled: "{{ item.enabled }}"
+        state: "{{ item.state }}"
+      loop:
+        - { name: 'ssh.socket',  enabled: false, state: 'stopped' }
+        - { name: 'ssh.service', enabled: true,  state: 'started' }
+      when: proxmox_type == 'lxc'
+
+    - name: "SSH (LXC): Set port {{ target_ssh_port }}"
       ansible.builtin.copy:
         content: "Port {{ target_ssh_port }}\n"
         dest: /etc/ssh/sshd_config.d/99-custom-port.conf
         mode: '0644'
-      notify: Restart SSH
+      notify: "Restart SSH (LXC)"
+      when: proxmox_type == 'lxc'
 
-    - name: "UFW: Allow target SSH port {{ target_ssh_port }}"
-      community.general.ufw:
-        rule: allow
-        port: "{{ target_ssh_port | string }}"
-        proto: tcp
-
-    - name: "UFW: Set default policies"
-      community.general.ufw:
-        state: enabled
-        direction: "{{ item.direction }}"
-        policy: "{{ item.policy }}"
-      loop:
-        - { direction: 'incoming', policy: 'deny' }
-        - { direction: 'outgoing', policy: 'allow' }
-
-    - name: "UFW: Enable firewall"
-      community.general.ufw:
-        state: enabled
-
-    - name: "Systemd: Disable rpcbind (VM only)"
-      ansible.builtin.systemd:
-        name: rpcbind
-        state: stopped
-        enabled: false
-      when: proxmox_type == 'vm'
-      ignore_errors: true
-
-    - name: "Systemd: Limit journald log size"
-      ansible.builtin.lineinfile:
-        path: /etc/systemd/journald.conf
-        regexp: '^#?SystemMaxUse='
-        line: "SystemMaxUse=50M"
-      notify: Restart Journald
-
-    - name: "SSH: Flush handlers to apply new port now"
-      ansible.builtin.meta: flush_handlers
+    - name: "SSH: Harden config"
+      ansible.builtin.copy:
+        content: |
+          PermitRootLogin no
+          PasswordAuthentication no
+          PubkeyAuthentication yes
+        dest: /etc/ssh/sshd_config.d/99-hardening.conf
+        mode: '0644'
+      notify:
+        - "Restart SSH (VM)"
+        - "Restart SSH (LXC)"
 
     - name: "SSH: Verify connectivity on port {{ target_ssh_port }}"
       delegate_to: localhost
@@ -83,13 +143,63 @@
         line: '\1\2'
         backrefs: true
 
-  handlers:
-    - name: Restart SSH
-      ansible.builtin.service:
-        name: ssh
-        state: restarted
+    - name: "UFW: Allow SSH port {{ target_ssh_port }}"
+      community.general.ufw:
+        rule: allow
+        port: "{{ target_ssh_port | string }}"
+        proto: tcp
 
-    - name: Restart Journald
-      ansible.builtin.service:
-        name: systemd-journald
-        state: restarted
+    - name: "UFW: Set default policies and enable"
+      community.general.ufw:
+        state: enabled
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: "Journald: Limit log size to 50M"
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?SystemMaxUse='
+        line: "SystemMaxUse=50M"
+      notify: "Restart journald"
+
+    - name: "Fail2ban: Configure SSH jail"
+      ansible.builtin.copy:
+        content: |
+          [sshd]
+          enabled = true
+          port = {{ target_ssh_port }}
+          maxretry = 3
+          bantime = 3600
+          findtime = 600
+        dest: /etc/fail2ban/jail.d/sshd.conf
+        mode: '0644'
+      notify: "Restart fail2ban"
+
+    - name: "Unattended-upgrades: Security only"
+      ansible.builtin.copy:
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+            "${distro_id}:${distro_codename}-security";
+          };
+          Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        mode: '0644'
+
+    - name: "VM: Enable qemu-guest-agent"
+      ansible.builtin.systemd:
+        name: qemu-guest-agent
+        state: started
+        enabled: true
+      when: proxmox_type == 'vm'
+
+    - name: "VM: Disable rpcbind"
+      ansible.builtin.systemd:
+        name: rpcbind
+        state: stopped
+        enabled: false
+      when: proxmox_type == 'vm'
+      ignore_errors: true
