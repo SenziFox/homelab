@@ -1,0 +1,92 @@
+---
+- name: "VM: Create virtual machine on Proxmox"
+  hosts: proxmox
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../secrets.yml
+
+  vars:
+    vm_template_id: 9000
+    vm_storage: "local"
+
+  vars_prompt:
+    - name: vm_id
+      prompt: "VM ID"
+      private: false
+
+    - name: vm_hostname
+      prompt: "Hostname"
+      private: false
+
+    - name: vm_disk
+      prompt: "Disk size (GB)"
+      default: "3"
+      private: false
+
+    - name: vm_memory
+      prompt: "RAM (MB)"
+      default: "2048"
+      private: false
+
+    - name: vm_cores
+      prompt: "Cores"
+      default: "2"
+      private: false
+
+  tasks:
+    - name: "VM: Compute IP from ID"
+      ansible.builtin.set_fact:
+        vm_ip: "10.10.{{ (vm_id | int) // 100 }}.{{ (vm_id | int) % 100 }}"
+
+    - name: "VM: Check VM {{ vm_id }} does not already exist"
+      ansible.builtin.command: qm status {{ vm_id }}
+      register: vm_exists
+      failed_when: false
+      changed_when: false
+
+    - name: "VM: Abort if VM {{ vm_id }} already exists"
+      ansible.builtin.fail:
+        msg: "VM {{ vm_id }} already exists. Aborting."
+      when: vm_exists.rc == 0
+
+    - name: "VM: Clone template {{ vm_template_id }} → {{ vm_id }}"
+      ansible.builtin.command: >
+        sudo qm clone {{ vm_template_id }} {{ vm_id }}
+        --name {{ vm_hostname }}
+        --full
+        --storage {{ vm_storage }}
+      changed_when: true
+
+    - name: "VM: Set resources and network"
+      ansible.builtin.command: >
+        sudo qm set {{ vm_id }}
+        --memory {{ vm_memory }}
+        --cores {{ vm_cores }}
+        --ipconfig0 ip={{ vm_ip }}/24,gw={{ default_gateway }}
+      changed_when: true
+
+    - name: "VM: Resize disk to {{ vm_disk }}G"
+      ansible.builtin.command: >
+        sudo qm resize {{ vm_id }} scsi0 {{ vm_disk }}G
+      changed_when: true
+
+    - name: "VM: Start VM {{ vm_id }}"
+      ansible.builtin.command: sudo qm start {{ vm_id }}
+      changed_when: true
+
+    - name: "VM: Wait for VM to boot"
+      ansible.builtin.pause:
+        seconds: 15
+
+    - name: "VM: Add host to inventory"
+      delegate_to: localhost
+      become: false
+      ansible.builtin.lineinfile:
+        path: "../inventory.ini"
+        line: "{{ vm_hostname }} ansible_host={{ vm_ip }} proxmox_type=vm ansible_port=22"
+        insertafter: '^\[new\]'
+
+    - name: "VM: Done"
+      ansible.builtin.debug:
+        msg: "VM {{ vm_id }} | {{ vm_hostname }} | {{ vm_ip }} — added to [new] in inventory. Next: ansible-playbook init/init.yml -l {{ vm_hostname }}"
