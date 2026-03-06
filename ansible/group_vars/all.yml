@@ -1,4 +1,6 @@
 ---
+pve_host: "10.10.10.2"
+default_gateway: "10.10.10.1"
 target_ssh_port: 5542
 timezone: "Europe/Moscow"
 admin_user: "senzi"
