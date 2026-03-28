@@ -1,5 +1,6 @@
 ---
 pve_host: "10.10.10.2"
+pve_node: "pve"
 default_gateway: "10.10.10.1"
 target_ssh_port: 5542
 timezone: "Europe/Moscow"
@@ -14,3 +15,4 @@ sys_packages:
   - fastfetch
   - vim
 # admin_keys в отдельном ansible/secrets.yml
+# ansible_key также в ansible/secrets.yml
