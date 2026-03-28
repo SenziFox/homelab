@@ -1,16 +1,17 @@
 ---
-- name: "LXC: Create container on Proxmox"
+- name: "LXC: Provision container via Proxmox API"
   hosts: proxmox
   gather_facts: false
   become: false
   vars_files:
     - ../secrets.yml
   vars:
-    lxc_ostemplate: "/var/lib/vz/template/cache/debian-13-standard_13.1-2_amd64.tar.zst"
-    lxc_storage: "local"
+    lxc_ostemplate: "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
     lxc_cores: 1
     lxc_memory: 512
     lxc_swap: 512
+    lxc_onboot: true
+    lxc_unprivileged: true
   vars_prompt:
     - name: ct_id
       prompt: "CT ID"
@@ -27,68 +28,51 @@
       ansible.builtin.set_fact:
         ct_ip: "10.10.{{ (ct_id | int) // 100 }}.{{ (ct_id | int) % 100 }}"
 
-    - name: "LXC: Check CT {{ ct_id }} does not already exist"
-      ansible.builtin.command: pct status {{ ct_id }}
-      register: ct_exists
-      failed_when: false
-      changed_when: false
-
-    - name: "LXC: Abort if CT {{ ct_id }} already exists"
-      ansible.builtin.fail:
-        msg: "CT {{ ct_id }} already exists. Aborting."
-      when: ct_exists.rc == 0
-
-    - name: "LXC: Upload SSH public keys"
-      ansible.builtin.copy:
-        content: "{{ admin_keys | join('\n') }}\n"
-        dest: "/tmp/ansible_pubkeys_{{ ct_id }}.pub"
-        mode: '0600'
-
     - name: "LXC: Create container {{ ct_id }} ({{ ct_hostname }})"
-      ansible.builtin.command: >
-        sudo pct create {{ ct_id }} {{ lxc_ostemplate }}
-        --hostname {{ ct_hostname }}
-        --storage {{ lxc_storage }}
-        --rootfs {{ lxc_storage }}:{{ ct_disk }}
-        --cores {{ lxc_cores }}
-        --memory {{ lxc_memory }}
-        --swap {{ lxc_swap }}
-        --net0 name=eth0,bridge=vmbr0,firewall=1,ip={{ ct_ip }}/24,gw={{ default_gateway }},type=veth
-        --unprivileged 1
-        --onboot 1
-        --features nesting=0
-        --ssh-public-keys /tmp/ansible_pubkeys_{{ ct_id }}.pub
-        --password {{ admin_password }}
-      changed_when: true
+      community.general.proxmox:
+        api_host: "{{ pve_host }}"
+        api_token_id: "{{ pve_api_token_id }}"
+        api_token_secret: "{{ pve_api_token_secret }}"
+        api_user: "{{ pve_api_user }}"
+        cores: "{{ lxc_cores }}"
+        disk: "local:{{ ct_disk }}"
+        hostname: "{{ ct_hostname }}"
+        memory: "{{ lxc_memory }}"
+        node: "{{ pve_node }}"
+        onboot: "{{ lxc_onboot }}"
+        vmid: "{{ ct_id }}"
+        pubkey: "{{ ansible_key }}"
+        swap: "{{ lxc_swap }}"
+        ostemplate: "{{ lxc_ostemplate }}"
+        unprivileged: "{{ lxc_unprivileged }}"
+        netif:
+          net0: "name=eth0,gw={{ default_gateway }},ip={{ ct_ip }}/16,bridge=vmbr0,firewall=1"
 
-    - name: "LXC: Start container {{ ct_id }}"
-      ansible.builtin.command: sudo pct start {{ ct_id }}
-      changed_when: true
+    - name: "LXC: Start container {{ ct_id }} ({{ ct_hostname }})"
+      community.general.proxmox:
+        api_host: "{{ pve_host }}"
+        api_token_id: "{{ pve_api_token_id }}"
+        api_token_secret: "{{ pve_api_token_secret }}"
+        api_user: "{{ pve_api_user }}"
+        hostname: "{{ ct_hostname }}"
+        node: "{{ pve_node }}"
+        vmid: "{{ ct_id }}"
+        state: started
 
-    - name: "LXC: Wait for container to boot"
+    - name: "LXC: Wait for start {{ ct_id }} ({{ ct_hostname }})"
       ansible.builtin.pause:
-        seconds: 10
+        seconds: 5
 
-    - name: "LXC: Setup admin user {{ admin_user }}"
-      ansible.builtin.shell: |
-        sudo pct exec {{ ct_id }} -- bash << 'ENDOFSCRIPT'
-        useradd -m -s /bin/bash {{ admin_user }} || true
-        mkdir -p /home/{{ admin_user }}/.ssh
-        chmod 700 /home/{{ admin_user }}/.ssh
-        apt-get install -y sudo -qq
-        echo '{{ admin_user }} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{{ admin_user }}
-        cat << 'ENDOFKEYS' > /home/{{ admin_user }}/.ssh/authorized_keys
-        {{ admin_keys | join('\n') }}
-        ENDOFKEYS
-        chmod 600 /home/{{ admin_user }}/.ssh/authorized_keys
-        chown -R {{ admin_user }}:{{ admin_user }} /home/{{ admin_user }}/.ssh
-        ENDOFSCRIPT
-      changed_when: true
-
-    - name: "LXC: Remove temp pubkeys file"
-      ansible.builtin.file:
-        path: "/tmp/ansible_pubkeys_{{ ct_id }}.pub"
-        state: absent
+    - name: "LXC: Add host in memory"
+      ansible.builtin.add_host:
+        name: "{{ ct_hostname }}"
+        ansible_host: "{{ ct_ip }}"
+        ansible_user: root
+        ansible_port: 22
+        proxmox_type: lxc
+        groups: "new_lxc"
+        ct_id: "{{ ct_id }}"
+        ct_hostname: "{{ ct_hostname }}"
 
     - name: "LXC: Add host to inventory"
       delegate_to: localhost
@@ -97,6 +81,45 @@
         path: "../inventory.ini"
         line: "{{ ct_hostname }} ansible_host={{ ct_ip }} proxmox_type=lxc ansible_port=22"
         insertafter: '^\[new\]'
+
+- name: "LXC: Bootstrap admin access"
+  hosts: new_lxc
+  gather_facts: false
+  become: false
+  remote_user: root
+  vars_files:
+    - ../secrets.yml
+  tasks:
+    - name: "LXC: Install sudo"
+      ansible.builtin.apt:
+        name: sudo
+        state: present
+        update_cache: true
+
+    - name: "LXC: Create admin user {{ admin_user }}"
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        shell: /bin/bash
+        groups: sudo
+        state: present
+
+    - name: "LXC: Deploy ssh keys for {{ admin_user }}"
+      ansible.posix.authorized_key:
+        user: "{{ admin_user }}"
+        state: present
+        key: "{{ admin_keys | join('\n') }}\n"
+
+    - name: "LXC: Passwordless sudo for {{ admin_user }}"
+      ansible.builtin.copy:
+        content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        dest: "/etc/sudoers.d/{{ admin_user }}"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: "LXC: Remove root ssh key"
+      ansible.builtin.file:
+        path: /root/.ssh/authorized_keys
+        state: absent
 
     - name: "LXC: Done"
       ansible.builtin.debug:
