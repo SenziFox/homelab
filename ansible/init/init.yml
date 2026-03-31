@@ -4,7 +4,7 @@
   become: true
 
   vars_files:
-    - secrets.yml
+    - ../secrets.yml
 
   handlers:
     - name: "Restart SSH (VM)"
@@ -31,7 +31,6 @@
         state: restarted
 
   tasks:
-    # --- APT ---
     - name: "APT: Update and upgrade all packages"
       ansible.builtin.apt:
         update_cache: true
@@ -42,13 +41,6 @@
       ansible.builtin.apt:
         name: "{{ sys_packages }}"
         state: present
-      when: proxmox_type == 'vm'
-
-    - name: "APT: Install essential packages"
-      ansible.builtin.apt:
-        name: "{{ sys_packages }}"
-        state: present
-      when: proxmox_type == 'lxc'
 
     - name: "System: Set timezone to {{ timezone }}"
       community.general.timezone:
