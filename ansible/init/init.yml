@@ -7,17 +7,7 @@
     - "{{ playbook_dir }}/../secrets.yml"
 
   handlers:
-  - name: "Restart SSH (VM)"
-    listen: "Restart SSH"
-    when: proxmox_type == 'vm'
-    ansible.builtin.systemd:
-      name: ssh.socket
-      state: restarted
-      daemon_reload: true
-
-  - name: "Restart SSH (LXC)"
-    listen: "Restart SSH"
-    when: proxmox_type == 'lxc'
+  - name: "Restart SSH"
     ansible.builtin.systemd:
       name: ssh.service
       state: restarted
@@ -72,26 +62,7 @@
         commands: ALL
         nopassword: true
 
-    - name: "SSH (VM): Create socket drop-in directory"
-      ansible.builtin.file:
-        path: /etc/systemd/system/ssh.socket.d
-        state: directory
-        mode: '0755'
-      when: proxmox_type == 'vm'
-        
-    - name: "SSH (VM): Set port {{ target_ssh_port }}"
-      when: proxmox_type == 'vm'
-      notify: "Restart SSH"
-      ansible.builtin.copy:
-        content: |
-          [Socket]
-          ListenStream=
-          ListenStream={{ target_ssh_port }}
-        dest: /etc/systemd/system/ssh.socket.d/override.conf
-        mode: '0644'
-
-    - name: "SSH (LXC): Set port {{ target_ssh_port }}"
-      when: proxmox_type == 'lxc'
+    - name: "SSH: Set port {{ target_ssh_port }}"
       notify: "Restart SSH"
       ansible.builtin.copy:
         content: "Port {{ target_ssh_port }}\n"
@@ -116,6 +87,9 @@
         regexp: '^({{ inventory_hostname }}.*?)\s+ansible_port=\S+(.*)$'
         line: '\1\2'
         backrefs: true
+
+    - name: "Flush handlers"
+      ansible.builtin.meta: flush_handlers
 
     - name: "SSH: Wait for reconnect on port {{ target_ssh_port }}"
       vars:
