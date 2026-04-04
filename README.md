@@ -1,9 +1,9 @@
 # homelab
 
-self hosted everything bc i hate paying for cloud  
+self hosted everything  
 stack: proxmox · ansible · nginx · docker
 
-## hardware
+## hardware node1
 
 | component | spec |
 |---|---|
@@ -54,26 +54,24 @@ IDs divisible by 100 are reserved (network addresses).
 | monitoring | lxc | 404 | 10.10.4.4 |
 | wings (pelican) | lxc | 403 | 10.10.4.3 |
 
-
-
-
 ## structure
 
 ```
 homelab/
-  README.md
-  proxmox/
-    main_template_spec.md
-    hardware.md
-  network/
-    topology.md
-    vlans.md
-    addressing.md
-  services/
-    core.md
-    prod.md
-    test.md
-  ansible/
   docs/
-    decisions.md
+    proxmox/
+      main_template_spec.md
+      lxc_template_spec.md
+  ansible/
+    create/
+    group_vars/
+    init/
+    services/
+    ansible.cfg
+    example_secrets.yml
+    inventory.ini
+    secrets.yml
+  decisions.md
+  Makefile
+  README.md
 ```
