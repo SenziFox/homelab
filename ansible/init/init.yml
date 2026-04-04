@@ -4,31 +4,28 @@
   become: true
 
   vars_files:
-    - ../secrets.yml
+    - "{{ playbook_dir }}/../secrets.yml"
 
   handlers:
-    - name: "Restart SSH (VM)"
-      ansible.builtin.systemd:
-        name: ssh.socket
-        state: restarted
-        daemon_reload: true
-      when: proxmox_type == 'vm'
+  - name: "Restart SSH (VM)"
+    listen: "Restart SSH"
+    when: proxmox_type == 'vm'
+    ansible.builtin.systemd:
+      name: ssh.socket
+      state: restarted
+      daemon_reload: true
 
-    - name: "Restart SSH (LXC)"
-      ansible.builtin.systemd:
-        name: ssh.service
-        state: restarted
-      when: proxmox_type == 'lxc'
-
-    - name: "Restart fail2ban"
-      ansible.builtin.service:
-        name: fail2ban
-        state: restarted
-
-    - name: "Restart journald"
-      ansible.builtin.service:
-        name: systemd-journald
-        state: restarted
+  - name: "Restart SSH (LXC)"
+    listen: "Restart SSH"
+    when: proxmox_type == 'lxc'
+    ansible.builtin.systemd:
+      name: ssh.service
+      state: restarted
+    
+  - name: "Restart fail2ban"
+    ansible.builtin.systemd:
+      name: fail2ban
+      state: restarted
 
   tasks:
     - name: "APT: Update and upgrade all packages"
@@ -36,6 +33,15 @@
         update_cache: true
         upgrade: dist
         autoremove: true
+
+    - name: "APT: Install required packages"
+      ansible.builtin.apt:
+        name: 
+        - sudo
+        - fail2ban
+        - unattended-upgrades
+        - ufw
+        state: present
 
     - name: "APT: Install essential packages"
       ansible.builtin.apt:
@@ -52,20 +58,19 @@
         shell: /bin/bash
         groups: sudo
         append: true
-
+      
     - name: "User: Sync SSH keys for {{ admin_user }}"
       ansible.posix.authorized_key:
         user: "{{ admin_user }}"
         state: present
-        key: "{{ item }}"
-      loop: "{{ admin_keys }}"
+        key: "{{ admin_keys | join('\n') }}\n"
 
     - name: "User: Passwordless sudo for {{ admin_user }}"
-      ansible.builtin.copy:
-        content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
-        dest: "/etc/sudoers.d/{{ admin_user }}"
-        mode: '0440'
-        validate: 'visudo -cf %s'
+      community.general.sudoers:
+        name: "Passwordless sudo for {{ admin_user }}"
+        user: "{{ admin_user }}"
+        commands: ALL
+        nopassword: true
 
     - name: "SSH (VM): Create socket drop-in directory"
       ansible.builtin.file:
@@ -73,8 +78,10 @@
         state: directory
         mode: '0755'
       when: proxmox_type == 'vm'
-
-    - name: "SSH (VM): Override ssh.socket port"
+        
+    - name: "SSH (VM): Set port {{ target_ssh_port }}"
+      when: proxmox_type == 'vm'
+      notify: "Restart SSH"
       ansible.builtin.copy:
         content: |
           [Socket]
@@ -82,28 +89,17 @@
           ListenStream={{ target_ssh_port }}
         dest: /etc/systemd/system/ssh.socket.d/override.conf
         mode: '0644'
-      notify: "Restart SSH (VM)"
-      when: proxmox_type == 'vm'
-
-    - name: "SSH (LXC): Disable ssh.socket, enable ssh.service"
-      ansible.builtin.systemd:
-        name: "{{ item.name }}"
-        enabled: "{{ item.enabled }}"
-        state: "{{ item.state }}"
-      loop:
-        - { name: 'ssh.socket',  enabled: false, state: 'stopped' }
-        - { name: 'ssh.service', enabled: true,  state: 'started' }
-      when: proxmox_type == 'lxc'
 
     - name: "SSH (LXC): Set port {{ target_ssh_port }}"
+      when: proxmox_type == 'lxc'
+      notify: "Restart SSH"
       ansible.builtin.copy:
         content: "Port {{ target_ssh_port }}\n"
         dest: /etc/ssh/sshd_config.d/99-custom-port.conf
         mode: '0644'
-      notify: "Restart SSH (LXC)"
-      when: proxmox_type == 'lxc'
 
     - name: "SSH: Harden config"
+      notify: "Restart SSH"
       ansible.builtin.copy:
         content: |
           PermitRootLogin no
@@ -111,31 +107,23 @@
           PubkeyAuthentication yes
         dest: /etc/ssh/sshd_config.d/99-hardening.conf
         mode: '0644'
-      notify:
-        - "Restart SSH (VM)"
-        - "Restart SSH (LXC)"
-
-    - name: "SSH: Verify connectivity on port {{ target_ssh_port }}"
-      delegate_to: localhost
-      become: false
-      ansible.builtin.wait_for:
-        host: "{{ ansible_host }}"
-        port: "{{ target_ssh_port }}"
-        state: started
-        timeout: 15
-      register: ssh_check
 
     - name: "Inventory: Remove ansible_port after SSH port change"
       delegate_to: localhost
       become: false
-      when: ssh_check is succeeded
       ansible.builtin.lineinfile:
-        path: "../inventory.ini"
-        regexp: '^({{ inventory_hostname }}\s+ansible_host=\S+)\s+ansible_port=\S+(.*)'
+        path: "{{ playbook_dir }}/../inventory.ini"
+        regexp: '^({{ inventory_hostname }}.*?)\s+ansible_port=\S+(.*)$'
         line: '\1\2'
         backrefs: true
 
-    - name: "UFW: Allow SSH port {{ target_ssh_port }}"
+    - name: "SSH: Wait for reconnect on port {{ target_ssh_port }}"
+      vars:
+        ansible_port: "{{ target_ssh_port }}"
+      ansible.builtin.wait_for_connection:
+        timeout: 30
+
+    - name: "UFW: Allow {{ target_ssh_port }} for SSH"
       community.general.ufw:
         rule: allow
         port: "{{ target_ssh_port | string }}"
@@ -150,14 +138,8 @@
         - { direction: 'incoming', policy: 'deny' }
         - { direction: 'outgoing', policy: 'allow' }
 
-    - name: "Journald: Limit log size to 50M"
-      ansible.builtin.lineinfile:
-        path: /etc/systemd/journald.conf
-        regexp: '^#?SystemMaxUse='
-        line: "SystemMaxUse=50M"
-      notify: "Restart journald"
-
-    - name: "Fail2ban: Configure SSH jail"
+    - name: "F2B: Configure SSH jail"
+      notify: "Restart fail2ban"
       ansible.builtin.copy:
         content: |
           [sshd]
@@ -168,7 +150,6 @@
           findtime = 600
         dest: /etc/fail2ban/jail.d/sshd.conf
         mode: '0644'
-      notify: "Restart fail2ban"
 
     - name: "Unattended-upgrades: Security only"
       ansible.builtin.copy:
@@ -181,17 +162,16 @@
         dest: /etc/apt/apt.conf.d/50unattended-upgrades
         mode: '0644'
 
-    - name: "VM: Enable qemu-guest-agent"
+    - name: "VM: Ensure working qemu-guest-agent"
+      when: proxmox_type == 'vm'
       ansible.builtin.systemd:
         name: qemu-guest-agent
         state: started
-        enabled: true
-      when: proxmox_type == 'vm'
 
     - name: "VM: Disable rpcbind"
+      when: proxmox_type == 'vm'
       ansible.builtin.systemd:
         name: rpcbind
         state: stopped
         enabled: false
-      when: proxmox_type == 'vm'
-      ignore_errors: true
+      failed_when: false

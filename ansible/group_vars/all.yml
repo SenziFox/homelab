@@ -3,6 +3,7 @@ pve_host: "10.10.10.2"
 pve_node: "pve"
 default_gateway: "10.10.10.1"
 target_ssh_port: 5542
+ansible_port: 5542
 timezone: "Europe/Moscow"
 admin_user: "senzi"
 sys_packages:
@@ -11,8 +12,8 @@ sys_packages:
   - wget
   - git
   - ncdu
-  - ufw
   - fastfetch
   - vim
+ansible_python_interpreter: /usr/bin/python3
 # admin_keys в отдельном ansible/secrets.yml
 # ansible_key также в ansible/secrets.yml
