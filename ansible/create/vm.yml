@@ -41,16 +41,27 @@
         api_user: "{{ pve_api_user }}"
         autostart: true
         clone: "{{ vm_template_name }}"
-        cores: "{{ vm_cores }}"
-        ipconfig:
-          ipconfig0: 'ip={{ vm_ip }}/16,gw={{ default_gateway }}'
-        memory: "{{ vm_memory }}"
         name: "{{ vm_hostname }}"
         newid: "{{ vm_id }}"
         node: "{{ pve_node }}"
         state: present
         storage: "{{ vm_storage }}"
         vmid: "{{ vm_template_id }}"
+
+    - name: "VM: Update VM config"
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ pve_host }}"
+        api_token_id: "{{ pve_api_token_id }}"
+        api_token_secret: "{{ pve_api_token_secret }}"
+        api_user: "{{ pve_api_user }}"
+        vmid: "{{ vm_id }}"
+        node: "{{ pve_node }}"
+        cores: "{{ vm_cores }}"
+        memory: "{{ vm_memory }}"
+        ipconfig:
+          ipconfig0: 'ip={{ vm_ip }}/16,gw={{ default_gateway }}'
+        update: true
+        state: present
 
     - name: "VM: Set disk size"
       community.proxmox.proxmox_disk:
