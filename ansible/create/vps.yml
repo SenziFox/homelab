@@ -1,0 +1,94 @@
+---
+- name: "VPS: Register and verify host"
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../secrets.yml
+  vars:
+    vps_port: 22
+  vars_prompt:
+    - name: vps_hostname
+      prompt: "VPS Hostname"
+      private: false
+    - name: vps_ip
+      prompt: "VPS IP"
+      private: false
+    - name: vps_user
+      prompt: "VPS User"
+      default: "root"
+      private: false
+    - name: ansible_password
+      prompt: "VPS Password"
+      private: true
+  tasks:
+    - name: "Add host in memory"
+      ansible.builtin.add_host:
+        name: "{{ vps_hostname }}"
+        ansible_host: "{{ vps_ip }}"
+        ansible_user: "{{ vps_user }}"
+        ansible_port: "{{ vps_port }}"
+        proxmox_type: vps
+        groups: "new_vps"
+        ansible_password: "{{ ansible_password }}"
+        vps_hostname: "{{ vps_hostname }}"
+
+    - name: "SSH: Test SSH connection to {{ vps_hostname }} ({{ vps_ip }})"
+      delegate_to: "{{ vps_hostname }}"
+      vars:
+        ansible_port: "{{ vps_port }}"
+      ansible.builtin.wait_for_connection:
+        timeout: 30
+
+    - name: "VPS: Add host to inventory"
+      become: false
+      ansible.builtin.lineinfile:
+        path: "../inventory.ini"
+        line: "{{ vps_hostname }} ansible_host={{ vps_ip }} proxmox_type=vps ansible_port={{ vps_port }}"
+        insertafter: '^\[vps\]'
+
+- name: "VPS: Bootstrap admin access"
+  hosts: new_vps
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../secrets.yml
+  tasks:
+    - name: "VPS: Setup hostname"
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: "VPS: Install sudo"
+      ansible.builtin.apt:
+        name: sudo
+        state: present
+        update_cache: true
+
+    - name: "VPS: Create admin user {{ admin_user }}"
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        shell: /bin/bash
+        groups: sudo
+        state: present
+
+    - name: "VPS: Deploy ssh keys for {{ admin_user }}"
+      ansible.posix.authorized_key:
+        user: "{{ admin_user }}"
+        state: present
+        key: "{{ admin_keys | join('\n') }}\n"
+
+    - name: "VPS: Passwordless sudo for {{ admin_user }}"
+      ansible.builtin.copy:
+        content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        dest: "/etc/sudoers.d/{{ admin_user }}"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: "VPS: Remove root ssh key"
+      ansible.builtin.file:
+        path: /root/.ssh/authorized_keys
+        state: absent
+
+    - name: "VPS: Done"
+      ansible.builtin.debug:
+        msg: "VPS ({{ inventory_hostname }}) created and started. Next: ansible-playbook init/init.yml -l {{ inventory_hostname }}"
