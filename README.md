@@ -1,6 +1,6 @@
 # homelab
 
-self hosted everything  
+self hosted everything (almost)  
 stack: proxmox · ansible · nginx · docker
 
 ## hardware node1
@@ -66,10 +66,10 @@ homelab/
     create/
     group_vars/
     init/
+    inventories/
     services/
     ansible.cfg
     example_secrets.yml
-    inventory.ini
     secrets.yml
   decisions.md
   Makefile
