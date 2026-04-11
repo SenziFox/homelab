@@ -3,4 +3,5 @@
 .vscode/
 ansible/fact_cache/
 ansible/secrets.yml
+ansible/inventories/private.ini
 .venv/
