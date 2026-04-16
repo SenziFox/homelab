@@ -4,7 +4,7 @@
   gather_facts: false
   become: false
   vars_files:
-    - ../secrets.yml
+    - "{{ playbook_dir }}/../secrets.yml"
   vars:
     lxc_ostemplate: "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
     lxc_cores: 1
@@ -28,8 +28,8 @@
       ansible.builtin.set_fact:
         ct_ip: "10.10.{{ (ct_id | int) // 100 }}.{{ (ct_id | int) % 100 }}"
 
-    - name: "LXC: Create container {{ ct_id }} ({{ ct_hostname }})"
-      community.general.proxmox:
+    - name: "LXC: Create container"
+      community.proxmox.proxmox:
         api_host: "{{ pve_host }}"
         api_token_id: "{{ pve_api_token_id }}"
         api_token_secret: "{{ pve_api_token_secret }}"
@@ -48,8 +48,8 @@
         netif:
           net0: "name=eth0,gw={{ default_gateway }},ip={{ ct_ip }}/16,bridge=vmbr0,firewall=1"
 
-    - name: "LXC: Start container {{ ct_id }} ({{ ct_hostname }})"
-      community.general.proxmox:
+    - name: "LXC: Start container"
+      community.proxmox.proxmox:
         api_host: "{{ pve_host }}"
         api_token_id: "{{ pve_api_token_id }}"
         api_token_secret: "{{ pve_api_token_secret }}"
@@ -59,7 +59,7 @@
         vmid: "{{ ct_id }}"
         state: started
 
-    - name: "LXC: Wait for start {{ ct_id }} ({{ ct_hostname }})"
+    - name: "LXC: Wait for start"
       ansible.builtin.pause:
         seconds: 5
 
@@ -78,7 +78,7 @@
       delegate_to: localhost
       become: false
       ansible.builtin.lineinfile:
-        path: "../inventory.ini"
+        path: "{{ playbook_dir }}/../inventories/public.ini"
         line: "{{ ct_hostname }} ansible_host={{ ct_ip }} proxmox_type=lxc ansible_port=22"
         insertafter: '^\[new\]'
 
@@ -88,7 +88,7 @@
   become: false
   remote_user: root
   vars_files:
-    - ../secrets.yml
+    - "{{ playbook_dir }}/../secrets.yml"
   tasks:
     - name: "LXC: Install sudo"
       ansible.builtin.apt:
@@ -96,20 +96,20 @@
         state: present
         update_cache: true
 
-    - name: "LXC: Create admin user {{ admin_user }}"
+    - name: "LXC: Create admin user"
       ansible.builtin.user:
         name: "{{ admin_user }}"
         shell: /bin/bash
         groups: sudo
         state: present
 
-    - name: "LXC: Deploy ssh keys for {{ admin_user }}"
+    - name: "LXC: Deploy ssh keys for admin user"
       ansible.posix.authorized_key:
         user: "{{ admin_user }}"
         state: present
         key: "{{ admin_keys | join('\n') }}\n"
 
-    - name: "LXC: Passwordless sudo for {{ admin_user }}"
+    - name: "LXC: Passwordless sudo for admin user"
       ansible.builtin.copy:
         content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
         dest: "/etc/sudoers.d/{{ admin_user }}"
