@@ -2,21 +2,17 @@
 - name: "Init: Bootstrap and maintain server state"
   hosts: all
   become: true
-
   vars_files:
     - "{{ playbook_dir }}/../secrets.yml"
-
   handlers:
-  - name: "Restart SSH"
-    ansible.builtin.systemd:
-      name: ssh.service
-      state: restarted
-    
-  - name: "Restart fail2ban"
-    ansible.builtin.systemd:
-      name: fail2ban
-      state: restarted
-
+    - name: "Restart SSH"
+      ansible.builtin.systemd:
+        name: ssh.service
+        state: restarted
+    - name: "Restart fail2ban"
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: restarted
   tasks:
     - name: "APT: Update and upgrade all packages"
       ansible.builtin.apt:
@@ -26,11 +22,11 @@
 
     - name: "APT: Install required packages"
       ansible.builtin.apt:
-        name: 
-        - sudo
-        - fail2ban
-        - unattended-upgrades
-        - ufw
+        name:
+          - sudo
+          - fail2ban
+          - unattended-upgrades
+          - ufw
         state: present
 
     - name: "APT: Install essential packages"
@@ -38,31 +34,31 @@
         name: "{{ sys_packages }}"
         state: present
 
-    - name: "System: Set timezone to {{ timezone }}"
+    - name: "System: Set timezone"
       community.general.timezone:
         name: "{{ timezone }}"
 
-    - name: "User: Ensure {{ admin_user }} exists"
+    - name: "User: Ensure user exists and is in sudo group"
       ansible.builtin.user:
         name: "{{ admin_user }}"
         shell: /bin/bash
         groups: sudo
         append: true
-      
-    - name: "User: Sync SSH keys for {{ admin_user }}"
+
+    - name: "User: Sync SSH keys"
       ansible.posix.authorized_key:
         user: "{{ admin_user }}"
         state: present
         key: "{{ admin_keys | join('\n') }}\n"
 
-    - name: "User: Passwordless sudo for {{ admin_user }}"
+    - name: "User: Passwordless sudo"
       community.general.sudoers:
         name: "Passwordless sudo for {{ admin_user }}"
         user: "{{ admin_user }}"
         commands: ALL
         nopassword: true
 
-    - name: "SSH: Set port {{ target_ssh_port }}"
+    - name: "SSH: Set new port"
       notify: "Restart SSH"
       ansible.builtin.copy:
         content: "Port {{ target_ssh_port }}\n"
@@ -83,7 +79,7 @@
       delegate_to: localhost
       become: false
       ansible.builtin.lineinfile:
-        path: "{{ playbook_dir }}/../inventory.ini"
+        path: "{{ inventory_file }}"
         regexp: '^({{ inventory_hostname }}.*?)\s+ansible_port=\S+(.*)$'
         line: '\1\2'
         backrefs: true
@@ -91,19 +87,19 @@
     - name: "Flush handlers"
       ansible.builtin.meta: flush_handlers
 
-    - name: "SSH: Wait for reconnect on port {{ target_ssh_port }}"
+    - name: "SSH: Wait for reconnect after port change"
       vars:
         ansible_port: "{{ target_ssh_port }}"
       ansible.builtin.wait_for_connection:
         timeout: 30
 
-    - name: "UFW: Allow {{ target_ssh_port }} for SSH"
+    - name: "UFW: Allow SSH"
       community.general.ufw:
         rule: allow
         port: "{{ target_ssh_port | string }}"
         proto: tcp
 
-    - name: "UFW: Set default policies and enable"
+    - name: "UFW: Set default policies and enable" # noqa: args[module]
       community.general.ufw:
         state: enabled
         direction: "{{ item.direction }}"
