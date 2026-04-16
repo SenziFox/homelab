@@ -1,7 +1,8 @@
-*.retry
-*.log
-.vscode/
-ansible/fact_cache/
-ansible/secrets.yml
-ansible/inventories/private.ini
+.ansible/
 .venv/
+.vscode/
+*.log
+*.retry
+ansible/fact_cache/
+ansible/inventories/private.ini
+ansible/secrets.yml
