@@ -14,3 +14,14 @@ community.general.proxmox устарел, переехал в community.proxmox
 написан create/vps.yml для машин хостящихся не у меня
 обновлена структура inventory, теперь это несколько файлов ибо публичный репо, там айпи и тд
 добавил комментарий в example_secrets.yml по примеру с inventories/example.private
+
+## 2026.04.15
+
+оказалось что все сломалось, inventory более не ворк, ссш на lxc тоже, когда же фиксить....
+
+## 2026.04.16
+
+починил переменные, оказалось просто переносом переменных
+перенес lxc.yml на community.proxmox.proxmox
+более правильно задал путь к secrets.yml в vps,vm,lxc.yml
+ansible-lint по всем плейбукам пробежал, кайф
