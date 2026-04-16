@@ -4,7 +4,7 @@
   gather_facts: false
   become: false
   vars_files:
-    - ../secrets.yml
+    - "{{ playbook_dir }}/../secrets.yml"
   vars:
     vm_storage: "local"
     vm_template_id: 9000
@@ -33,7 +33,7 @@
       ansible.builtin.set_fact:
         vm_ip: "10.10.{{ (vm_id | int) // 100 }}.{{ (vm_id | int) % 100 }}"
 
-    - name: "VM: Clone template {{ vm_template_id }}"
+    - name: "VM: Clone template"
       community.proxmox.proxmox_kvm:
         api_host: "{{ pve_host }}"
         api_token_id: "{{ pve_api_token_id }}"
@@ -74,7 +74,7 @@
         state: resized
         vmid: "{{ vm_id }}"
 
-    - name: "VM: Start machine {{ vm_id }} ({{ vm_hostname }})"
+    - name: "VM: Start machine"
       community.proxmox.proxmox_kvm:
         api_host: "{{ pve_host }}"
         api_token_id: "{{ pve_api_token_id }}"
@@ -83,13 +83,44 @@
         state: started
         vmid: "{{ vm_id }}"
 
+    - name: "VM: Add host in memory"
+      ansible.builtin.add_host:
+        name: "{{ vm_hostname }}"
+        ansible_host: "{{ vm_ip }}"
+        ansible_user: "{{ admin_user }}"
+        ansible_port: 22
+        proxmox_type: vm
+        groups: "new_vm"
+        vm_id: "{{ vm_id }}"
+        vm_hostname: "{{ vm_hostname }}"
+
     - name: "VM: Add host to inventory"
       delegate_to: localhost
       become: false
       ansible.builtin.lineinfile:
         insertafter: '^\[new\]'
         line: "{{ vm_hostname }} ansible_host={{ vm_ip }} proxmox_type=vm ansible_port=22"
-        path: "../inventory.ini"
+        path: "{{ playbook_dir }}/../inventories/public.ini"
+
+    - name: "VM: Wait for SSH to become available"
+      delegate_to: "{{ vm_hostname }}"
+      vars:
+        ansible_user: "{{ admin_user }}"
+        ansible_port: 22
+      ansible.builtin.wait_for_connection:
+        delay: 20
+        sleep: 5
+        timeout: 120
+
+    - name: "Cloud-init: Wait for cloud-init to finish"
+      delegate_to: "{{ vm_hostname }}"
+      vars:
+        ansible_user: "{{ admin_user }}"
+        ansible_port: 22
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      register: cloud_init_result
+      failed_when: cloud_init_result.rc not in [0, 2]
 
     - name: "VM: Done"
       ansible.builtin.debug:
