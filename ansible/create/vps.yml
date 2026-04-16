@@ -4,7 +4,7 @@
   gather_facts: false
   become: false
   vars_files:
-    - ../secrets.yml
+    - "{{ playbook_dir }}/../secrets.yml"
   vars:
     vps_port: 22
   vars_prompt:
@@ -33,7 +33,7 @@
         ansible_password: "{{ ansible_password }}"
         vps_hostname: "{{ vps_hostname }}"
 
-    - name: "SSH: Test SSH connection to {{ vps_hostname }} ({{ vps_ip }})"
+    - name: "SSH: Test SSH connection"
       delegate_to: "{{ vps_hostname }}"
       vars:
         ansible_port: "{{ vps_port }}"
@@ -52,7 +52,7 @@
   gather_facts: false
   become: false
   vars_files:
-    - ../secrets.yml
+    - "{{ playbook_dir }}/../secrets.yml"
   tasks:
     - name: "VPS: Setup hostname"
       ansible.builtin.hostname:
